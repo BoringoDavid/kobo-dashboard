@@ -12,7 +12,7 @@ try:
     TOKEN = st.secrets["KOBO_TOKEN"]
     ASSET_ID = st.secrets["ASSET_ID"]
 except:
-    TOKEN = "YOUR_KOBO_TOKEN"
+    TOKEN = "5753adfba72b3aba56b0948da6cc0c2d9c8e012f"
     ASSET_ID = "aru4FnYa2aTc2BujrNmguz"
 
 @st.cache_data(ttl=3600)
