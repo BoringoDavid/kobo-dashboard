@@ -4,7 +4,7 @@ import plotly.express as px
 import requests
 from datetime import datetime
 
-st.set_page_config(page_title="KoBoToolbox Dashboard", layout="wide")
+st.set_page_config(page_title="shoraheza", layout="wide")
 st.title("SHORA HEZA PERFOMANCE DASHBOARD")
 
 # Your credentials
