@@ -8,10 +8,8 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="KPI Dashboard", layout="wide", initial_sidebar_state="expanded")
 
 KOBO_BASE_URL = "https://kc.kobotoolbox.org/api/v2"
-KOBO_TOKEN = st.secrets.get("kobo_token")
-# KOBO_ASSET_ID = st.secrets.get("kobo_asset_id")
-KOBO_ASSET_ID = "aFdWtxPBEJf6XesZUkv3Rg"
-# KOBO_ASSET_ID = "aFdWtxPBEJf6XesZUkv3Rg"
+KOBO_TOKEN = st.secrets.get("KOBO_TOKEN")
+KOBO_ASSET_ID = st.secrets.get("KOBO_ASSET_ID")
 
 # ==================== CUSTOM CSS ====================
 st.markdown("""
