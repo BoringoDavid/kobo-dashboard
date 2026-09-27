@@ -7,9 +7,12 @@ from datetime import datetime
 st.set_page_config(page_title="KoBoToolbox Dashboard", layout="wide")
 st.title("📊 Data Collection Dashboard")
 
-# Your credentials
-TOKEN = "5753adfba72b3aba56b0948da6cc0c2d9c8e012f"
-ASSET_ID = "aru4FnYa2aTc2BujrNmguz"
+try:
+    TOKEN = st.secrets["KOBO_TOKEN"]
+    ASSET_ID = st.secrets["ASSET_ID"]
+except:
+    TOKEN = ""
+    ASSET_ID = ""
 
 @st.cache_data(ttl=3600)
 def load_and_clean_data():
