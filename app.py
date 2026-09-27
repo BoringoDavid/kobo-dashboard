@@ -593,49 +593,49 @@ def main():
             """)
     
     # Analytics Tab
-    with tab5:
-        st.subheader("📈 Cross-Source Analytics")
+    # with tab5:
+    #     st.subheader("📈 Cross-Source Analytics")
         
-        col1, col2, col3, col4 = st.columns(4)
+    #     col1, col2, col3, col4,  = st.columns(4)
         
-        with col1:
-            st.metric("Total FSCs (Profile)", len(df_fscs_profile))
-        with col2:
-            st.metric("Total Livelihood Participants", len(df_livelihood_profile))
-        with col3:
-            st.metric("KPI Records", len(df_kpi))
-        with col4:
-            total = len(df_fscs_profile) + len(df_livelihood_profile) + len(df_kpi)
-            st.metric("Total Records", total)
+    #     with col1:
+    #         st.metric("Total FSCs (Profile)", len(df_fscs_profile))
+    #     with col2:
+    #         st.metric("Total Livelihood Participants", len(df_livelihood_profile))
+    #     with col3:
+    #         st.metric("KPI Records", len(df_kpi))
+    #     with col4:
+    #         total = len(df_fscs_profile) + len(df_livelihood_profile) + len(df_kpi)
+    #         st.metric("Total Records", total)
         
-        st.info("Advanced analytics and comparisons coming soon!")
+    #     st.info("Advanced analytics and comparisons coming soon!")
         
-        # Data completeness summary
-        st.subheader("Data Completeness Summary")
+    #     # Data completeness summary
+    #     st.subheader("Data Completeness Summary")
         
-        summary_data = {
-            'Data Source': ['KPI', 'FSCs Profile', 'Livelihood Profile'],
-            'Records': [len(df_kpi), len(df_fscs_profile), len(df_livelihood_profile)],
-            'Fields': [len(df_kpi.columns) if len(df_kpi) > 0 else 0,
-                      len(df_fscs_profile.columns) if len(df_fscs_profile) > 0 else 0,
-                      len(df_livelihood_profile.columns) if len(df_livelihood_profile) > 0 else 0]
-        }
+    #     summary_data = {
+    #         'Data Source': ['KPI', 'FSCs Profile', 'Livelihood Profile'],
+    #         'Records': [len(df_kpi), len(df_fscs_profile), len(df_livelihood_profile)],
+    #         'Fields': [len(df_kpi.columns) if len(df_kpi) > 0 else 0,
+    #                   len(df_fscs_profile.columns) if len(df_fscs_profile) > 0 else 0,
+    #                   len(df_livelihood_profile.columns) if len(df_livelihood_profile) > 0 else 0]
+    #     }
         
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True)
+    #     summary_df = pd.DataFrame(summary_data)
+    #     st.dataframe(summary_df, use_container_width=True)
     
     # Footer
     # st.divider()
     # col1, col2, col3, col4, col5 = st.columns(5)
     
     # with col1:
-    #     st.text("📅 Auto-refresh: Every hour")
+    #     st.text("Auto-refresh: Every hour")
     # with col2:
-    #     st.text(f"📊 KPI: {len(df_kpi)} records")
+    #     st.text(f"KPI: {len(df_kpi)} records")
     # with col3:
-    #     st.text(f"👥 FSCs: {len(df_fscs_profile)} records")
+    #     st.text(f"FSCs: {len(df_fscs_profile)} records")
     # with col4:
-    #     st.text(f"🌾 Livelihood: {len(df_livelihood_profile)} records")
+    #     st.text(f"Livelihood: {len(df_livelihood_profile)} records")
     # with col5:
     #     st.text("v3.5 - Dashboard Ready")
 
