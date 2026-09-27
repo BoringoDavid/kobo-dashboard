@@ -7,517 +7,626 @@ from datetime import datetime, timedelta
 
 st.set_page_config(page_title="KPI Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-st.title("📊 KPI Monitoring Dashboard")
-st.markdown("Real-time tracking of project KPIs across all categories")
+KOBO_BASE_URL = "https://kc.kobotoolbox.org/api/v2"
+KOBO_TOKEN = st.secrets.get("kobo_token")
+KOBO_ASSET_ID = st.secrets.get("kobo_asset_id")
+# KOBO_ASSET_ID = "aFdWtxPBEJf6XesZUkv3Rg"
 
-# Credentials from secrets or defaults
-TOKEN = st.secrets["KOBO_TOKEN"]
-ASSET_ID = st.secrets["ASSET_ID"]
-    
-# Cache data loading
+# ==================== CUSTOM CSS ====================
+st.markdown("""
+<style>
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        margin: 10px 0;
+    }
+    .empty-state-message {
+        background: #e8f4f8;
+        border-left: 4px solid #0288d1;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 20px 0;
+    }
+    .category-header {
+        border-bottom: 3px solid #667eea;
+        padding-bottom: 10px;
+        margin-top: 30px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==================== CACHE DATA LOADING ====================
 @st.cache_data(ttl=3600)
-def load_kobo_data():
-    """Load and clean data from KoBoToolbox with pagination"""
+def fetch_kobo_data():
+    """
+    Fetch data from KoBoToolbox API with error handling
+    Cache for 1 hour (3600 seconds)
+    """
     try:
-        url = f'https://kc.kobotoolbox.org/api/v2/assets/{ASSET_ID}/data'
-        headers = {'Authorization': f'Token {TOKEN}'}
+        headers = {
+            "Authorization": f"Token {KOBO_TOKEN}",
+            "Accept": "application/json"
+        }
         
-        all_records = []
-        limit = 10000  # Get up to 10000 records per request
-        offset = 0
+        url = f"{KOBO_BASE_URL}/assets/{KOBO_ASSET_ID}/data/?limit=10000&offset=0"
+        response = requests.get(url, headers=headers, timeout=30)
         
-        while True:
-            # Fetch with pagination parameters
-            params = {'limit': limit, 'offset': offset}
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Extract results
-            if isinstance(data, dict) and 'results' in data:
-                records = data['results']
-            else:
-                records = data
-            
-            if not records:
-                break  # No more records
-            
-            all_records.extend(records)
-            offset += limit
+        # Handle different HTTP errors
+        if response.status_code == 401:
+            return None, "❌ 401 Unauthorized - Check your KoBoToolbox API token"
+        elif response.status_code == 404:
+            return None, "❌ 404 Asset not found - Check your Asset ID"
+        elif response.status_code != 200:
+            return None, f"❌ API Error: {response.status_code}"
         
-        st.info(f"✅ Fetched {len(all_records)} total submissions")
+        # Parse JSON response
+        data = response.json()
+        results = data.get('results', [])
         
-        df = pd.DataFrame(all_records)
+        # If no data, return empty DataFrame without error
+        if not results:
+            return pd.DataFrame(), None
         
-        # Convert submission time
-        if '_submission_time' in df.columns:
-            df['_submission_time'] = pd.to_datetime(df['_submission_time'])
-            df = df.sort_values('_submission_time', ascending=False)
+        # Convert to DataFrame
+        df = pd.DataFrame(results)
+        return df, None
         
-        # Remove duplicates
-        if '_id' in df.columns:
-            df = df.drop_duplicates(subset=['_id'], keep='first')
-        
-        return df
-    
+    except requests.exceptions.ConnectionError:
+        return None, "❌ Connection error - Check your internet connection"
+    except requests.exceptions.Timeout:
+        return None, "❌ Request timeout - Try again"
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
-        return None
+        return None, f"❌ Error: {str(e)}"
 
-# Helper function to safely access columns
-def safe_metric(df, column, aggregation='count', format_str=None):
-    """Safely get metric value if column exists"""
-    if column not in df.columns or len(df) == 0:
-        return None
+# ==================== EMPTY STATE MESSAGE ====================
+def show_empty_state_message():
+    """
+    Show temporary empty state message with auto-dismiss
+    Message appears for 4 seconds then disappears
+    """
+    placeholder = st.empty()
     
-    try:
-        if aggregation == 'count':
-            return df[column].notna().sum()
-        elif aggregation == 'sum':
-            return df[column].sum()
-        elif aggregation == 'mean':
-            return df[column].mean()
-        elif aggregation == 'max':
-            return df[column].max()
-    except:
-        return None
-
-def safe_value_counts(df, column):
-    """Safely get value counts for a column"""
-    if column not in df.columns or len(df) == 0:
-        return None
-    try:
-        return df[column].value_counts()
-    except:
-        return None
-
-# Load data
-df = load_kobo_data()
-
-if df is None:
-    st.error("❌ Could not load data. Please check your KoBoToolbox credentials.")
-    st.stop()
-
-# =============== CHECK IF DATA EXISTS ===============
-if len(df) == 0:
-    st.warning("⚠️ No data submitted yet!")
-    st.info("""
-    Your KoBoToolbox form is ready but has no submissions yet.
+    with placeholder.container():
+        st.markdown("""
+        <div class="empty-state-message">
+        <h4>✓ Dashboard Ready - Awaiting Data</h4>
+        <p>Your KoBoToolbox form is configured and ready to receive data.</p>
+        <ul style="text-align: left; margin-left: 20px;">
+            <li><strong>Next steps:</strong> Share the form URL with data collectors</li>
+            <li><strong>Data:</strong> Will appear here automatically once submissions are received</li>
+            <li><strong>Refresh:</strong> Dashboard updates every hour</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
     
-    **Next steps:**
-    1. Share the form URL with your data collectors
-    2. They fill out the form on mobile or desktop
-    3. Submissions will appear here automatically
-    4. Dashboard will refresh every hour with new data
+    # Auto-dismiss after 4 seconds
+    time.sleep(4)
+    placeholder.empty()
+
+# ==================== CATEGORY 1: PARTICIPANTS ====================
+def display_category_1(df):
+    """
+    Category 1: Participants
+    - FSCs (Farmer Service Centers)
+    - Livelihood Participants (LPs)
+    - Indirect Beneficiaries
+    - Demographics (Gender, Age)
+    """
+    st.markdown('<div class="category-header"><h2>Category 1: Participants</h2></div>', 
+                unsafe_allow_html=True)
     
-    **Form is deployed and ready!** ✅
-    """)
-    st.stop()
-
-# Data is available - proceed with dashboard
-st.success(f"✅ Loaded {len(df)} submissions")
-
-# =============== SIDEBAR - FILTERS ===============
-st.sidebar.markdown("### 🔍 Filters")
-
-# Date range filter
-if '_submission_time' in df.columns:
-    min_date = df['_submission_time'].min().date()
-    max_date = df['_submission_time'].max().date()
-    date_range = st.sidebar.date_input(
-        "Select Date Range:",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
-    
-    if len(date_range) == 2:
-        df_filtered = df[
-            (df['_submission_time'].dt.date >= date_range[0]) &
-            (df['_submission_time'].dt.date <= date_range[1])
-        ].copy()
+    # Calculate metrics
+    if len(df) > 0:
+        fscs_count = df.get('fsc_count', pd.Series([0])).sum()
+        lps_count = df.get('lp_count', pd.Series([0])).sum()
+        indirect_count = df.get('indirect_beneficiaries', pd.Series([0])).sum()
     else:
-        df_filtered = df.copy()
-else:
-    df_filtered = df.copy()
-
-# =============== TOP SUMMARY METRICS ===============
-st.markdown("---")
-st.subheader("📈 Overall Summary")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Total Submissions", len(df_filtered), delta=f"Total: {len(df)}")
-
-with col2:
-    if '_submission_time' in df_filtered.columns:
-        this_week = len(df_filtered[df_filtered['_submission_time'] > pd.Timestamp.now() - pd.Timedelta(days=7)])
-        st.metric("This Week", this_week)
-    else:
-        st.metric("This Week", "N/A")
-
-with col3:
-    if '_submission_time' in df_filtered.columns:
-        st.metric("Latest Update", df_filtered['_submission_time'].max().strftime('%Y-%m-%d'))
-    else:
-        st.metric("Latest Update", "N/A")
-
-with col4:
-    missing = (df_filtered.isna().sum().sum() / (len(df_filtered) * len(df_filtered.columns)) * 100) if len(df_filtered) > 0 else 0
-    st.metric("Data Completeness", f"{100 - missing:.1f}%")
-
-st.markdown("---")
-
-# =============== CATEGORY TABS ===============
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "Jobs",
-    "Youth FSC",
-    "Women FSC",
-    "Food Systems",
-    "Off-Farm",
-    "On-Farm"
-])
-
-# ===== INDIVIDUAL GREEN JOBS (youth) =====
-with tab1:
-    st.subheader("Category 1: Individual Green Jobs (Youth)")
+        fscs_count = 0
+        lps_count = 0
+        indirect_count = 0
     
-    col1, col2, col3 = st.columns(3)
+    total_participants = fscs_count + lps_count
     
-    with col1:
-        job_count = safe_metric(df_filtered, 'job_type', 'count')
-        st.metric("Total Youth Employed", job_count if job_count else "0")
-    
-    with col2:
-        avg_wage = safe_metric(df_filtered, 'avg_wage_monthly', 'mean')
-        st.metric("Average Monthly Wage (RWF)", f"{avg_wage:,.0f}" if avg_wage else "No data")
-    
-    with col3:
-        avg_security = safe_metric(df_filtered, 'job_security_perceived', 'mean')
-        st.metric("Avg Job Security (1-5)", f"{avg_security:.1f}" if avg_security else "No data")
-    
-    # Job Type Distribution
-    job_counts = safe_value_counts(df_filtered, 'job_type')
-    if job_counts is not None and len(job_counts) > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.pie(
-                values=job_counts.values,
-                names=job_counts.index,
-                title="Job Type Distribution",
-                hole=0.4
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            wage_by_type = df_filtered[df_filtered['job_type'].notna()].groupby('job_type')['avg_wage_monthly'].mean() if 'avg_wage_monthly' in df_filtered.columns else None
-            if wage_by_type is not None and len(wage_by_type) > 0:
-                fig = px.bar(
-                    x=wage_by_type.index,
-                    y=wage_by_type.values,
-                    title="Average Wage by Job Type",
-                    labels={'x': 'Job Type', 'y': 'Average Wage (RWF)'}
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No job type data available yet")
-
-# ===== TAB 2: YOUTH-LED FSC (18-35 YEARS) =====
-with tab2:
-    st.subheader("Category 2: Youth-Led FSC (18-35 Years)")
-    
+    # Display metric cards
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        youth_fsc = safe_metric(df_filtered, 'fsc_youth_businessplan', 'count')
-        st.metric("FSC Count", youth_fsc if youth_fsc else "0")
+        st.metric("Total FSCs", int(fscs_count), delta=None)
     
     with col2:
-        farmers = safe_metric(df_filtered, 'fsc_youth_farmers_served', 'sum')
-        st.metric("Farmers Served", f"{farmers:,.0f}" if farmers and farmers > 0 else "0")
+        st.metric("Livelihood Participants", int(lps_count), delta=None)
     
     with col3:
-        avg_turnover = safe_metric(df_filtered, 'fsc_youth_turnover_q', 'mean')
-        st.metric("Avg Quarterly Turnover", f"{avg_turnover:,.0f}" if avg_turnover else "No data")
+        st.metric("Indirect Beneficiaries", int(indirect_count), delta=None)
     
     with col4:
-        employees = safe_metric(df_filtered, 'fsc_youth_employees', 'sum')
-        st.metric("Total Employees", f"{employees:,.0f}" if employees and employees > 0 else "0")
+        st.metric("Total Direct Beneficiaries", int(total_participants), delta=None)
     
-    # Business Plans
-    plan_status = safe_value_counts(df_filtered, 'fsc_youth_businessplan')
-    if plan_status is not None and len(plan_status) > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.pie(
-                values=plan_status.values,
-                names=['Yes', 'No'][:len(plan_status)],
-                title="FSCs with Actionable Business Plans"
+    # FSCs by Sector
+    st.subheader("FSCs Distribution by Sector (Gitoki & Kabarore)")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig_sector = go.Figure(data=[
+            go.Bar(
+                x=['Gitoki Sector', 'Kabarore Sector'],
+                y=[0, 0],
+                marker_color=['#1f77b4', '#ff7f0e'],
+                text=[0, 0],
+                textposition='auto'
             )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'fsc_youth_savings' in df_filtered.columns:
-                savings_data = df_filtered['fsc_youth_savings'].dropna()
-                if len(savings_data) > 0:
-                    fig = px.box(
-                        y=savings_data,
-                        title="Savings Distribution (RWF)",
-                        labels={'y': 'Savings (RWF)'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No Youth FSC data available yet")
-    
-    # Financial Metrics
-    st.subheader("💰 Financial Metrics")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        total_turnover = safe_metric(df_filtered, 'fsc_youth_turnover_q', 'sum')
-        st.metric("Total Quarterly Turnover", f"{total_turnover:,.0f}" if total_turnover and total_turnover > 0 else "0")
-    
-    with col2:
-        total_sales = safe_metric(df_filtered, 'fsc_youth_sales_income', 'sum')
-        st.metric("Total Sales Income", f"{total_sales:,.0f}" if total_sales and total_sales > 0 else "0")
-    
-    with col3:
-        total_loans = safe_metric(df_filtered, 'fsc_youth_loans_total', 'sum')
-        st.metric("Total Loans Received", f"{total_loans:,.0f}" if total_loans and total_loans > 0 else "0")
-
-# ===== TAB 3: WOMEN FSC (36+ YEARS) =====
-with tab3:
-    st.subheader("Category 3: Women FSC (36+ Years)")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        women_fsc = safe_metric(df_filtered, 'fsc_women_businessplan', 'count')
-        st.metric("FSC Count", women_fsc if women_fsc else "0")
-    
-    with col2:
-        farmers = safe_metric(df_filtered, 'fsc_women_farmers_served', 'sum')
-        st.metric("Farmers Served", f"{farmers:,.0f}" if farmers and farmers > 0 else "0")
-    
-    with col3:
-        avg_turnover = safe_metric(df_filtered, 'fsc_women_turnover_q', 'mean')
-        st.metric("Avg Quarterly Turnover", f"{avg_turnover:,.0f}" if avg_turnover else "No data")
-    
-    with col4:
-        employees = safe_metric(df_filtered, 'fsc_women_employees', 'sum')
-        st.metric("Total Employees", f"{employees:,.0f}" if employees and employees > 0 else "0")
-    
-    # Business Plans & Savings
-    plan_status = safe_value_counts(df_filtered, 'fsc_women_businessplan')
-    if plan_status is not None and len(plan_status) > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.pie(
-                values=plan_status.values,
-                names=['Yes', 'No'][:len(plan_status)],
-                title="FSCs with Actionable Business Plans"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'fsc_women_savings' in df_filtered.columns:
-                savings_data = df_filtered['fsc_women_savings'].dropna()
-                if len(savings_data) > 0:
-                    fig = px.box(
-                        y=savings_data,
-                        title="Savings Distribution (RWF)",
-                        labels={'y': 'Savings (RWF)'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No Women FSC data available yet")
-    
-    # Financial Metrics
-    st.subheader("💰 Financial Metrics")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        total_turnover = safe_metric(df_filtered, 'fsc_women_turnover_q', 'sum')
-        st.metric("Total Quarterly Turnover", f"{total_turnover:,.0f}" if total_turnover and total_turnover > 0 else "0")
-    
-    with col2:
-        total_sales = safe_metric(df_filtered, 'fsc_women_sales_income', 'sum')
-        st.metric("Total Sales Income", f"{total_sales:,.0f}" if total_sales and total_sales > 0 else "0")
-    
-    with col3:
-        total_loans = safe_metric(df_filtered, 'fsc_women_loans_total', 'sum')
-        st.metric("Total Loans Received", f"{total_loans:,.0f}" if total_loans and total_loans > 0 else "0")
-
-# ===== TAB 4: FOOD SYSTEMS (MARKET ACTORS) =====
-with tab4:
-    st.subheader("Category 4: Food Systems (Market Actors)")
-    
-    actors_data = []
-    actor_fields = [
-        ('aggregators_count', 'Market Aggregators'),
-        ('offtakers_count', 'Offtakers/Buyers'),
-        ('mechanisation_providers', 'Mechanisation Providers'),
-        ('financial_providers', 'Financial Service Providers'),
-        ('digital_providers', 'Digital Service Providers'),
-        ('inputs_distributors', 'Inputs Distributors'),
-        ('phl_providers', 'PHL Providers'),
-        ('crop_insurance', 'Crop Insurance Providers'),
-        ('advisory_services', 'Advisory Services'),
-        ('research_partners', 'Research Partners'),
-        ('schools_serviced', 'Schools Serviced'),
-    ]
-    
-    for field, label in actor_fields:
-        count = safe_metric(df_filtered, field, 'sum')
-        if count is not None and count > 0:
-            actors_data.append({'Type': label, 'Count': count})
-    
-    if actors_data:
-        actors_df = pd.DataFrame(actors_data).sort_values('Count', ascending=True)
-        fig = px.barh(
-            actors_df,
-            x='Count',
-            y='Type',
-            title="Market Actors Summary",
-            labels={'Count': 'Number', 'Type': 'Actor Type'}
+        ])
+        fig_sector.update_layout(
+            title="FSCs by Sector",
+            xaxis_title="Sector",
+            yaxis_title="Number of FSCs",
+            height=400,
+            showlegend=False
         )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No food systems data available yet")
+        st.plotly_chart(fig_sector, use_container_width=True)
     
-    # Commodities to schools
-    if 'commodities_schools_value' in df_filtered.columns:
-        st.subheader("🏫 Commodities to Schools")
-        value = safe_metric(df_filtered, 'commodities_schools_value', 'sum')
-        st.metric("Total Value of Commodities Sold (RWF)", f"{value:,.0f}" if value and value > 0 else "0")
+    # Demographics (Gender & Age)
+    with col2:
+        fig_demo = go.Figure(data=[
+            go.Bar(name='Male', x=['Age 18-35', 'Age 35+'], y=[0, 0]),
+            go.Bar(name='Female', x=['Age 18-35', 'Age 35+'], y=[0, 0])
+        ])
+        fig_demo.update_layout(
+            title="Participants by Gender & Age",
+            xaxis_title="Age Group",
+            yaxis_title="Count",
+            barmode='group',
+            height=400
+        )
+        st.plotly_chart(fig_demo, use_container_width=True)
 
-# ===== TAB 5: LIVELIHOOD - OFF-FARM =====
-with tab5:
-    st.subheader("Category 5: Livelihood - Off-Farm")
+# ==================== CATEGORY 2: PERFORMANCE ====================
+def display_category_2(df):
+    """
+    Category 2: FSCs and LPs' Performance
+    - 2.1 Trainings & Skills Development
+    - 2.2 Access to Finance
+    - 2.3 Access to Market
+    - 2.4 Post Harvest Management (PHM)
+    - 2.5 Income & Earnings
+    """
+    st.markdown('<div class="category-header"><h2>Category 2: Performance</h2></div>', 
+                unsafe_allow_html=True)
     
+    # Key performance metrics
     col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Trainings Completed", 0)
+    with col2:
+        st.metric("FSCs with Business Plans", 0)
+    with col3:
+        st.metric("Access to Finance", 0)
+    with col4:
+        st.metric("Market Linkages", 0)
+    
+    # ========== 2.1 Trainings & Skills Development ==========
+    st.subheader("2.1 Trainings & Skills Development")
+    col1, col2 = st.columns(2)
     
     with col1:
-        offarm_count = safe_metric(df_filtered, 'livelihoods_offarm_business', 'count')
-        st.metric("Off-Farm Participants", offarm_count if offarm_count else "0")
+        fig_skills = go.Figure(data=[
+            go.Bar(
+                x=['Skills Dev', 'Vocational', 'Business Plans', 'Mgt Skills'],
+                y=[0, 0, 0, 0],
+                marker_color='#2ecc71',
+                text=[0, 0, 0, 0],
+                textposition='auto'
+            )
+        ])
+        fig_skills.update_layout(
+            title="Training Types Completed",
+            yaxis_title="Count",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_skills, use_container_width=True)
     
     with col2:
-        total_assets = safe_metric(df_filtered, 'offarm_assets_value', 'sum')
-        st.metric("Total Asset Value", f"{total_assets:,.0f}" if total_assets and total_assets > 0 else "0")
+        training_data = {
+            'Training Type': [
+                'GAP Training', 'Climate Resilience (CSA)', 'Financial Literacy',
+                'Bookkeeping', 'Crop/Livestock Insurance', 'Tailoring', 'Carpentry',
+                'Painting', 'Hair Dressing', 'Manicure/Pedicure'
+            ],
+            'Count': [0] * 10
+        }
+        fig_training_detail = px.bar(
+            training_data,
+            x='Count',
+            y='Training Type',
+            orientation='h',
+            title="Detailed Training Types"
+        )
+        fig_training_detail.update_layout(height=400)
+        st.plotly_chart(fig_training_detail, use_container_width=True)
     
-    with col3:
-        total_rev = safe_metric(df_filtered, 'offarm_revenues_q', 'sum')
-        st.metric("Total Quarterly Revenue", f"{total_rev:,.0f}" if total_rev and total_rev > 0 else "0")
-    
-    with col4:
-        if 'offarm_businessplan' in df_filtered.columns:
-            with_plan = (df_filtered['offarm_businessplan'] == '1').sum()
-            st.metric("With Business Plan", with_plan)
-    
-    # Charts
-    plan_status = safe_value_counts(df_filtered, 'offarm_businessplan')
-    if plan_status is not None and len(plan_status) > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.pie(
-                values=plan_status.values,
-                names=['Yes', 'No'][:len(plan_status)],
-                title="Participants with Business Plans"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'offarm_contracts' in df_filtered.columns:
-                contracts = df_filtered['offarm_contracts'].dropna()
-                if len(contracts) > 0:
-                    fig = px.box(
-                        y=contracts,
-                        title="Contracts Distribution",
-                        labels={'y': 'Number of Contracts'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No off-farm data available yet")
-
-# ===== TAB 6: LIVELIHOOD - ON-FARM =====
-with tab6:
-    st.subheader("Category 6: Livelihood - On-Farm")
-    
-    col1, col2, col3, col4 = st.columns(4)
+    # ========== 2.2 Access to Finance ==========
+    st.subheader("2.2 Access to Finance (Loans & Grants)")
+    col1, col2 = st.columns(2)
     
     with col1:
-        onfarm_count = safe_metric(df_filtered, 'onfarm_main_income', 'count')
-        st.metric("On-Farm Participants", onfarm_count if onfarm_count else "0")
+        fig_loans = go.Figure(data=[
+            go.Bar(
+                name='Males',
+                x=['Revolving Loans', 'Grants'],
+                y=[0, 0]
+            ),
+            go.Bar(
+                name='Females',
+                x=['Revolving Loans', 'Grants'],
+                y=[0, 0]
+            )
+        ])
+        fig_loans.update_layout(
+            title="Access to Finance (Gender Segregated)",
+            barmode='group',
+            height=400
+        )
+        st.plotly_chart(fig_loans, use_container_width=True)
     
     with col2:
-        total_rev = safe_metric(df_filtered, 'onfarm_revenue_total', 'sum')
-        st.metric("Total Revenue", f"{total_rev:,.0f}" if total_rev and total_rev > 0 else "0")
+        finance_metrics = {
+            'Metric': ['Total Loans', 'Total Grants', 'Avg Loan Amount', 'Avg Grant Amount'],
+            'Value': [0, 0, 0, 0]
+        }
+        fig_finance = px.bar(
+            finance_metrics,
+            x='Metric',
+            y='Value',
+            title="Finance Summary (RWF)",
+            color='Value',
+            color_continuous_scale='Blues'
+        )
+        fig_finance.update_layout(height=400, showlegend=False)
+        st.plotly_chart(fig_finance, use_container_width=True)
     
-    with col3:
-        total_land = safe_metric(df_filtered, 'onfarm_land_owned', 'sum')
-        st.metric("Total Land (ha)", f"{total_land:.1f}" if total_land and total_land > 0 else "0")
+    # ========== 2.3 Access to Market ==========
+    st.subheader("2.3 Access to Market")
+    col1, col2 = st.columns(2)
     
-    with col4:
-        if 'onfarm_irrigation_access' in df_filtered.columns:
-            irrigation = (df_filtered['onfarm_irrigation_access'] == '1').sum()
-            st.metric("With Irrigation Access", irrigation)
+    with col1:
+        commodities = {
+            'Commodity': ['Agro Inputs', 'Beans', 'Chili', 'Coffee', 'Soybeans', 
+                         'Banana', 'Sweet Potatoes', 'Irish Potatoes', 'Maize', 
+                         'Sorghum', 'Vet Products', 'Livestock Products'],
+            'Sales (RWF)': [0] * 12
+        }
+        fig_commodities = px.bar(
+            commodities,
+            x='Commodity',
+            y='Sales (RWF)',
+            title="Sales by Commodity Type"
+        )
+        fig_commodities.update_layout(
+            xaxis_tickangle=-45,
+            height=400
+        )
+        st.plotly_chart(fig_commodities, use_container_width=True)
     
-    # Charts
-    income_dist = safe_value_counts(df_filtered, 'onfarm_main_income')
-    if income_dist is not None and len(income_dist) > 0:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.bar(
-                x=income_dist.index,
-                y=income_dist.values,
-                title="Main Income Sources",
-                labels={'x': 'Income Source', 'y': 'Count'}
+    with col2:
+        fig_buyers = go.Figure(data=[
+            go.Pie(
+                labels=['Linked with Big Buyers', 'Not Linked'],
+                values=[0, 0],
+                hole=0.4,
+                marker_colors=['#2ecc71', '#e74c3c']
             )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'onfarm_land_owned' in df_filtered.columns:
-                land_data = df_filtered['onfarm_land_owned'].dropna()
-                if len(land_data) > 0:
-                    fig = px.box(
-                        y=land_data,
-                        title="Land Ownership Distribution (ha)",
-                        labels={'y': 'Land (hectares)'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No on-farm data available yet")
+        ])
+        fig_buyers.update_layout(
+            title="FSCs Linked with Big Buyers"
+        )
+        st.plotly_chart(fig_buyers, use_container_width=True)
+    
+    # Market linkage details
+    st.info("**Market Linkages:** Number of contracts signed, types of products under agreement, big buyer information")
+    
+    # ========== 2.4 Post Harvest Management (PHM) ==========
+    st.subheader("2.4 Post Harvest Management (PHM)")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("FSCs Trained in PHM", 0)
+        fig_phm = go.Figure(data=[
+            go.Bar(
+                x=['Male', 'Female'],
+                y=[0, 0],
+                marker_color=['#3498db', '#e74c3c'],
+                text=[0, 0],
+                textposition='auto'
+            )
+        ])
+        fig_phm.update_layout(
+            title="PHM Training by Gender",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_phm, use_container_width=True)
+    
+    with col2:
+        st.metric("PHM Materials Distributed", 0)
+        phm_materials = {
+            'Material Type': ['Storage Bags', 'Drying Racks', 'Packaging', 'Tools', 'Other'],
+            'Quantity': [0, 0, 0, 0, 0]
+        }
+        fig_phm_mat = px.bar(
+            phm_materials,
+            x='Material Type',
+            y='Quantity',
+            title="PHM Materials Distribution",
+            color='Quantity',
+            color_continuous_scale='Viridis'
+        )
+        fig_phm_mat.update_layout(height=400)
+        st.plotly_chart(fig_phm_mat, use_container_width=True)
+    
+    # ========== 2.5 Income & Earnings ==========
+    st.subheader("2.5 Income & Earnings")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        income_metrics = {
+            'Metric': ['Avg Monthly Income', 'Quarterly Turnover', 'Service Commissions'],
+            'Amount (RWF)': [0, 0, 0]
+        }
+        fig_income = px.bar(
+            income_metrics,
+            x='Metric',
+            y='Amount (RWF)',
+            title="Income Metrics",
+            color='Amount (RWF)',
+            color_continuous_scale='Greens'
+        )
+        fig_income.update_layout(height=400)
+        st.plotly_chart(fig_income, use_container_width=True)
+    
+    with col2:
+        st.markdown("""
+        **Income Sources Tracked:**
+        - Monthly income from sales
+        - Business venture income
+        - Service commissions:
+          - Vaccinations
+          - Artificial insemination
+          - Other value chain services
+        """)
 
-# =============== DATA EXPORT ===============
-st.markdown("---")
-st.subheader("📥 Data Export")
+# ==================== CATEGORY 3: IMPACT ====================
+def display_category_3(df):
+    """
+    Category 3: Impact
+    - 3.1 Green Jobs Creation
+    - 3.2 Business & Income Growth (Trends)
+    - 3.3 Service Delivery to Farmers
+    """
+    st.markdown('<div class="category-header"><h2>Category 3: Impact</h2></div>', 
+                unsafe_allow_html=True)
+    
+    # ========== 3.1 Green Jobs Creation ==========
+    st.subheader("3.1 Green Jobs Creation")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Jobs Created", 0)
+    with col2:
+        st.metric("Green Jobs (Male)", 0)
+    with col3:
+        st.metric("Green Jobs (Female)", 0)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        job_categories = {
+            'Job Category': ['Tree Nursery', 'Tree Planting', 'Terracing', 'Conservation Ag', 
+                           'Rainwater Harvesting', 'Carpentry', 'Tailoring', 'Hair Dressing'],
+            'Count': [0] * 8
+        }
+        fig_jobs = px.bar(
+            job_categories,
+            x='Count',
+            y='Job Category',
+            orientation='h',
+            title="Green Jobs by Category",
+            color='Count',
+            color_continuous_scale='RdYlGn'
+        )
+        fig_jobs.update_layout(height=400)
+        st.plotly_chart(fig_jobs, use_container_width=True)
+    
+    with col2:
+        job_types = {
+            'Job Type': ['Full Time', 'Part Time', 'Contractual', 'Casual'],
+            'Male': [0, 0, 0, 0],
+            'Female': [0, 0, 0, 0]
+        }
+        fig_job_types = go.Figure(data=[
+            go.Bar(name='Male', x=job_types['Job Type'], y=job_types['Male']),
+            go.Bar(name='Female', x=job_types['Job Type'], y=job_types['Female'])
+        ])
+        fig_job_types.update_layout(
+            title="Jobs by Type & Gender",
+            barmode='group',
+            height=400
+        )
+        st.plotly_chart(fig_job_types, use_container_width=True)
+    
+    # Wage metrics
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Average Monthly Wage (RWF)", "0", delta=None)
+    with col2:
+        st.metric("Job Security Rate", "0%", delta=None)
+    
+    # ========== 3.2 Business & Income Growth (Trends) ==========
+    st.subheader("3.2 Business & Income Growth (Trends Over Time)")
+    col1, col2 = st.columns(2)
+    
+    # Time series data
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
+    
+    with col1:
+        fig_sales_trend = go.Figure(data=[
+            go.Scatter(
+                x=months,
+                y=[0] * 6,
+                mode='lines+markers',
+                name='Current Sales',
+                line=dict(color='#3498db', width=3),
+                marker=dict(size=8)
+            ),
+            go.Scatter(
+                x=months,
+                y=[0] * 6,
+                mode='lines+markers',
+                name='Baseline Sales',
+                line=dict(color='#95a5a6', width=2, dash='dash'),
+                marker=dict(size=6)
+            )
+        ])
+        fig_sales_trend.update_layout(
+            title="Sales Growth Over Time (Comparison with Baseline)",
+            xaxis_title="Month",
+            yaxis_title="Sales (RWF)",
+            height=400,
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig_sales_trend, use_container_width=True)
+    
+    with col2:
+        fig_income_trend = go.Figure(data=[
+            go.Scatter(
+                x=months,
+                y=[0] * 6,
+                mode='lines+markers',
+                name='Income',
+                fill='tozeroy',
+                line=dict(color='#2ecc71', width=3),
+                marker=dict(size=8)
+            )
+        ])
+        fig_income_trend.update_layout(
+            title="Income Growth Over Time",
+            xaxis_title="Month",
+            yaxis_title="Income (RWF)",
+            height=400,
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig_income_trend, use_container_width=True)
+    
+    # ========== 3.3 Service Delivery to Farmers ==========
+    st.subheader("3.3 Service Delivery to Farmers")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig_farmers_served = go.Figure(data=[
+            go.Scatter(
+                x=months,
+                y=[0] * 6,
+                mode='lines+markers',
+                name='All Farmers',
+                line=dict(width=3, color='#3498db')
+            ),
+            go.Scatter(
+                x=months,
+                y=[0] * 6,
+                mode='lines+markers',
+                name='Young Farmers (18-35 years)',
+                line=dict(width=3, color='#e74c3c')
+            )
+        ])
+        fig_farmers_served.update_layout(
+            title="Farmers Served Over Time (Total vs Young Farmers)",
+            xaxis_title="Month",
+            yaxis_title="Number of Farmers",
+            height=400,
+            hovermode='x unified'
+        )
+        st.plotly_chart(fig_farmers_served, use_container_width=True)
+    
+    with col2:
+        fig_young_farmers = go.Figure(data=[
+            go.Bar(
+                x=['Male (18-35)', 'Female (18-35)'],
+                y=[0, 0],
+                marker_color=['#3498db', '#e74c3c'],
+                text=[0, 0],
+                textposition='auto'
+            )
+        ])
+        fig_young_farmers.update_layout(
+            title="Young Farmers Served by Gender",
+            yaxis_title="Count",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_young_farmers, use_container_width=True)
 
-col1, col2 = st.columns(2)
+# ==================== MAIN DASHBOARD ====================
+def main():
+    """Main dashboard function"""
+    
+    # Title and description
+    st.title("FSCs Monitoring Dashboard")
+    st.markdown("**Real-time tracking of project KPIs across all categories**")
+    st.markdown("---")
+    
+    # Try to fetch data from KoBoToolbox
+    df, error = fetch_kobo_data()
+    
+    # Handle API errors
+    if error:
+        st.error(error)
+        if "401" in error:
+            st.error("""
+            **How to fix 401 Unauthorized:**
+            
+            1. Go to https://kc.kobotoolbox.org/admin/
+            2. Click your profile (top right) → Account Settings
+            3. Copy your API Token
+            4. Go to ~/.streamlit/secrets.toml (or Streamlit Cloud Secrets)
+            5. Add: `kobo_token = "YOUR_TOKEN_HERE"`
+            6. Save and restart the dashboard
+            """)
+        return
+    
+    # Handle connection issues
+    if df is None:
+        st.error("❌ Could not load data from KoBoToolbox")
+        return
+    
+    # Handle empty data (show message then empty graphs)
+    if len(df) == 0:
+        show_empty_state_message()
+    
+    # Display all three categories
+    display_category_1(df)
+    st.divider()
+    
+    display_category_2(df)
+    st.divider()
+    
+    display_category_3(df)
+    
+    # Footer
+    # st.divider()
+    # col1, col2, col3 = st.columns(3)
+    # with col1:
+    #     st.text("📅 Last updated: Every hour")
+    # with col2:
+    #     if len(df) > 0:
+    #         st.text(f"📊 Total records: {len(df)}")
+    #     else:
+    #         st.text("📊 Waiting for data...")
+    # with col3:
+    #     st.text("NISR KPI Dashboard v2.0")
 
-with col1:
-    csv = df_filtered.to_csv(index=False)
-    st.download_button(
-        label="⬇️ Download Filtered Data (CSV)",
-        data=csv,
-        file_name=f"kpi_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
-
-with col2:
-    st.info("💡 Tip: Use the date filter to export specific periods of data")
-
-# =============== RAW DATA VIEW ===============
-with st.expander("🔍 View Raw Data"):
-    st.dataframe(df_filtered, use_container_width=True)
-
-# Last update time
-st.markdown("---")
-st.markdown(f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
-st.markdown("*Data refreshes every hour*")
+# ==================== RUN DASHBOARD ====================
+if __name__ == "__main__":
+    main()
