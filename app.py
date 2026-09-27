@@ -102,7 +102,7 @@ def show_empty_state_message():
         """, unsafe_allow_html=True)
     
     # Auto-dismiss after 4 seconds
-    time.sleep(4)
+    # time.sleep(4)
     placeholder.empty()
 
 # ==================== CATEGORY 1: PARTICIPANTS ====================
