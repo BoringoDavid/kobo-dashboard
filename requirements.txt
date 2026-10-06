@@ -1,4 +1,6 @@
-  streamlit
-  pandas
-  plotly
-  requests
+streamlit
+pandas
+plotly
+requests
+folium
+streamlit-folium
