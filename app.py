@@ -5,7 +5,8 @@ import plotly.graph_objects as go
 import requests
 from datetime import datetime, timedelta
 import time
-
+import folium
+from streamlit_folium import folium_static
 # ==================== PAGE CONFIG ====================
 st.set_page_config( 
     page_title="FSCs Dashboard", 
